@@ -1,0 +1,447 @@
+
+<!doctype html>
+<head>
+  <script src="//code.jquery.com/jquery-3.1.1.min.js"></script>
+  <script src="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+  <script src="js/socket.io.js"></script>
+  <script src="lib/codemirror/codemirror.js"></script>
+  <script src="lib/codemirror/mode/python/python.js"></script>
+
+  <link href="//maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+  <link href="http://code.ionicframework.com/ionicons/2.0.1/css/ionicons.min.css" rel="stylesheet" crossorigin="anonymous">
+  <link rel="stylesheet" href="lib/codemirror/codemirror.css">
+
+  <style>
+    .app {
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-content {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-content>.active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-pane {
+      height: 100%;
+      flex-grow: 1;
+    }
+
+    .editor, .outputs {
+      height: 100vh;
+    }
+    /*.editor .row {*/
+    .active>.row {
+      display: flex;
+      flex-grow: 1;
+      height: 100%;
+    }
+    .editor .code-column {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .code {
+      min-height: 480px;
+      flex-grow: 1;
+    }
+
+    .files-column {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+
+    .files-column .files {
+      flex-grow: 1;
+    }
+
+    .file:hover {
+      color: #0085ff;
+      cursor: pointer;
+    }
+
+    .files-title, .machines-title {
+      font-style: italic;
+    }
+
+    .file-rename, .file-remove {
+      font-size: 80%;
+      margin-left:12px;
+    }
+
+    .file-rename:hover, .file-remove:hover {
+      color: #0085ff;
+      cursor: pointer;
+    }
+
+    .client-control {
+      border: 1px solid;
+      margin-bottom: 16px;
+      padding: 4px;
+    }
+
+    .client-control.selected {
+      border: 2px solid red;
+    }
+
+    .client-control pre {
+      max-height: 40px;
+    }
+
+    .clear-stdout, .clear-stderr {
+      font-size: 70%;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+  <div class='container-fluid app'>
+    <div class='row'>
+      <div class='col-xs-12'>
+        <ul class='nav nav-tabs'>
+          <li role='presentation' class='active'><a href='#code' role="tab" data-toggle="tab">Code</a></li>
+          <li role='presentation'><a href='#machines' role="tab" data-toggle="tab">Machines</a></li>
+          <li role='presentation'><a href='#graphs' role="tab" data-toggle="tab">Graphs</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class='tab-content'>
+      <div role="tabpanel" class="tab-pane active editor" id="code">
+        <div class='row'>
+          <div class='col-xs-2 files-column'>
+            <div class='files-title'>Files column</div>
+            <div class='files'>
+            </div>
+            <div class='files-controls'>
+              <div class='btn btn-link files-add'><i class='ion-plus'></i></div>
+            </div>
+          </div>
+          <div class='col-xs-8 code-column'>
+            <div class='file-title'></div>
+            <textarea class='form-control code'></textarea>
+          </div>
+          <div class='col-xs-2'>
+            <div class='machines-title'>Machines</div>
+            <div class='machines'>
+            </div>
+          </div>
+        </div>      </div>
+      <div role="tabpanel" class="tab-pane outputs" id="machines">
+        <div class='row'>
+          <div class='col-xs-2'>
+            <div class='machines'>
+            </div>
+          </div>
+          <div class='col-xs-5'>
+            <h1>stdout <span class='clear-stdout'>clear</span></h1>
+            <pre class='full-stdout'></pre>
+          </div>
+          <div class='col-xs-5'>
+            <h1>stderr <span class='clear-stderr'>clear</span></h1>
+            <pre class='full-stderr'></pre>
+          </div>
+        </div>
+      </div>
+      <div role="tabpanel" class="tab-pane" id="graphs">
+        <div class='row'>
+          <div class='col-xs-12'>graphs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- <div class='container-fluid editor'>
+
+  </div> -->
+
+  <!-- <div class='container-fluid outputs'>
+  </div> -->
+  <script>
+    var selectedClient;
+    var currentFile;
+    var socket = io();
+
+    socket.emit('ui-connected');
+
+    socket.on('conection', function () {
+      console.log('connected');
+    });
+
+    socket.on('disconnect', function () {
+      console.log('user disconnected');
+    });
+
+    socket.on('machines', function (machines) {
+      console.log('machines', machines);
+      renderMachines(machines);
+    });
+
+    socket.on('machine-state', function (state) {
+      console.log('machine state', state);
+      $('[client-id=' + state.id + ']').replaceWith(renderClient(state));
+
+      if (selectedClient && state.id === selectedClient.id) {
+        renderOutput(state);
+      }
+    });
+
+    var codemirror;
+    $(function () {
+      // tabs
+      $('.nav-tabs a').click(function (e) {
+        e.preventDefault();
+        $(this).tab('show');
+      });
+
+      // setup code window
+      var $codeTextArea = $('.code');
+      var width = $codeTextArea.width();
+      var height = $codeTextArea.height();
+      codemirror = CodeMirror.fromTextArea($codeTextArea[0],
+        {
+          lineNumbers: true,
+          viewportMargin: Infinity,
+        }
+      );
+      codemirror.setSize(width, height);
+
+      codemirror.on('blur', function () {
+        var input = codemirror.getValue();
+        var name = $('.code').data('name');
+
+        if (!name) return;
+
+        $.post('/file',
+          {
+            name: name,
+            content: input,
+          }
+        );
+      });
+
+      $('.files-add').click(addFile);
+
+      loadFiles();
+
+      $.get('/machines').then(machines => {
+        renderMachines(machines);
+      });
+
+      $('.clear-stdout').click(function () {
+        $.get('/machines/' + selectedClient.id + '/clear-stdout');
+      });
+
+      $('.clear-stderr').click(function () {
+        $.get('/machines/' + selectedClient.id + '/clear-stderr');
+      });
+    });
+
+    function addFile() {
+      var name = prompt('filename');
+
+      if (!validFilename(name)) {
+        alert('not a valid filename');
+        return;
+      }
+
+      $.post('/file/add', {
+        name: name,
+      }).then(function (response) {
+        if (response.error) {
+          alert(response.error);
+        } else {
+          loadFiles();
+        }
+      });
+    }
+
+    function validFilename(filename) {
+      if (!filename || filename.length === 0) return false;
+
+      return /^([\w][\w.]*\/)*[\w][\w.]*$/.test(filename);
+    }
+
+    function loadFiles() {
+      $.get('/files').then(response => {
+        $('.files').empty();
+        response.forEach(file => {
+          var $f = $('<div class="file">' + file.name + '</div>');
+          $f.click(() => { loadFile(file); });
+          $('.files').append($f);
+        });
+      });
+    }
+
+    function loadFile(file) {
+      $.get(
+        '/file',
+        { name: file.name }
+      ).then(content => {
+        currentFile = file.name;
+        codemirror.setValue(content);
+        $('.code').data('name', file.name);
+        $('.file-title').text(file.name);
+        var $mv = $('<span class="file-rename">rename</span>');
+        $mv.click(renameFile);
+        var $rm = $('<span class="file-remove">delete</span>');
+        $rm.click(removeFile);
+        $('.file-title').append($mv);
+        $('.file-title').append($rm);
+      });
+    }
+
+    function unloadFile() {
+      $('.code').data('name', '');
+      $('.file-title').text('');
+      codemirror.setValue('');
+    }
+
+    function removeFile() {
+      var filename = $('.code').data('name');
+
+      var confirmed = confirm('Delete file ' + filename);
+
+      if (!confirmed) return;
+
+      $.post(
+        '/file/rm',
+        {
+          name: filename,
+        }
+      ).then(function (response) {
+        if (response.error) {
+          alert(response.error);
+        } else {
+          loadFiles();
+          unloadFile();
+        }
+      });
+    }
+
+    function renameFile() {
+      var filename = $('.code').data('name');
+      var newFilename = prompt('Rename file ' + filename + ' to', filename);
+
+      if (!validFilename(newFilename)) {
+        alert('invalid filename');
+        return;
+      }
+
+      $.post(
+        '/file/mv',
+        {
+          from: filename,
+          to: newFilename,
+        }
+      ).then(function (response) {
+        if (response.error) {
+          alert(response.error);
+        } else {
+          loadFiles();
+          loadFile({ name: newFilename });
+        }
+      });
+    }
+
+    function renderMachines(machines) {
+      $('.machines').empty();
+      machines
+        .map(machine => renderClient(machine))
+        .forEach($machine => { $('.editor .machines').append($machine); });
+
+      machines
+        .map(machine => renderClient(machine))
+        .forEach($machine => {
+          $('.outputs .machines').append($machine);
+        });
+    }
+
+    function renderOutput(state) {
+      $('.outputs .full-stdout').text(state.stdout);
+      $('.outputs .full-stderr').text(state.stderr);
+      scrollToBottom($('.outputs .full-stdout'));
+      scrollToBottom($('.outputs .full-stderr'));
+    }
+
+    function renderClient(state) {
+      var $e = $(
+        '<div class="client-control">' +
+        '  <div class="client-id"></div>' +
+        '  <div class="btn btn-link sync"><i class="ion-code-download"></i></div>' +
+        '  <div class="btn btn-link run"><i class="ion-play"></i></div>' +
+        '  <div class="btn btn-link stop"><i class="ion-stop"></i></div>' +
+        // '  <span class="sync-progress"></span>' +
+        // '  <div class="run-status"></div>' +
+        '  <pre class="stdout"></pre>' +
+        '  <pre class="stderr"></pre>' +
+        '</div>');
+
+      $e.attr('client-id', state.id);
+      $('.client-id', $e).text(state.id);
+      $('.stdout', $e).text(state.stdout);
+      $('.stderr', $e).text(state.stderr);
+      $('.sync-progress', $e).text(state.syncStatus);
+      $('.run-status', $e).text(state.runStatus);
+      $('.sync', $e).click(sync);
+      $('.run', $e).click(run);
+      $('.stop', $e).click(stop);
+      $('.client-id', $e).click(select);
+      if (state.syncStatus === 'syncing') {
+        $('.sync', $e).append('...');
+      }
+
+      if (selectedClient && selectedClient.id === state.id) {
+        $e.addClass('selected');
+      }
+
+      if (state.runStatus === 'idle') {
+        $('.stop', $e).hide();
+      } else {
+        $('.run', $e).hide();
+      }
+
+      setTimeout(function () {
+        scrollToBottom($('.stdout', $e));
+        scrollToBottom($('.stderr', $e));
+      }, 0);
+
+      return $e;
+
+      function select() {
+        var $e = $('.client-control[client-id=' + state.id + ']');
+        selectedClient = state;
+        renderOutput(state);
+        $('.client-control').removeClass('selected');
+        $e.addClass('selected');
+      }
+
+      function sync() {
+        $('.sync-progress', $e).text('...');
+        $.get('/machines/' + state.id + '/sync');
+      }
+
+      function run() {
+        $.get('/machines/' + state.id + '/run', { file: currentFile });
+      }
+
+      function stop() {
+        $.get('/machines/' + state.id + '/stop');
+      }
+    }
+
+    function scrollToBottom($div) {
+      $div.each(function () {
+        $d = $(this);
+        $d[0].scrollTop = $d[0].scrollHeight;
+      });
+    }
+  </script>
+</body>
