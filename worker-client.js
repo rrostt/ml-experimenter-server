@@ -11,15 +11,9 @@ function Client(socket, initialState) {
 
   this.state = Object.assign({}, initialState);
 
-  this.id = new Date().getTime();
+  this.id = this.state.id || new Date().getTime();
   this.stdout = '';
   this.stderr = '';
-
-  this.getStateObject = () => Object.assign({
-    id: _this.id,
-    stdout: _this.stdout,
-    stderr: _this.stderr,
-  }, _this.state);
 
   socket.on('state-change', state => {
     Object.assign(_this.state, state);
@@ -63,6 +57,12 @@ function Client(socket, initialState) {
       });
     });
   });
+
+  this.getStateObject = () => Object.assign({
+    id: _this.id,
+    stdout: _this.stdout,
+    stderr: _this.stderr,
+  }, _this.state);
 
   this.run = function (cmd) {
     console.log('emitting run');

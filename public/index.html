@@ -53,13 +53,13 @@
       flex-grow: 1;
     }
 
-    .files-column {
+    .files-column, .machines-column {
       display: flex;
       flex-direction: column;
       height: 100%;
     }
 
-    .files-column .files {
+    .files-column .files, .machines-column .machines {
       flex-grow: 1;
     }
 
@@ -80,6 +80,16 @@
     .file-rename:hover, .file-remove:hover {
       color: #0085ff;
       cursor: pointer;
+    }
+
+    .aws-instances {
+      overflow: scroll;
+    }
+
+    .aws-instance {
+      border: 1px solid;
+      margin-bottom: 16px;
+      padding: 4px;
     }
 
     .client-control {
@@ -130,15 +140,17 @@
           </div>
           <div class='col-xs-2'>
             <div class='machines-title'>Machines</div>
-            <div class='machines'>
-            </div>
+            <div class='machines'></div>
           </div>
         </div>      </div>
       <div role="tabpanel" class="tab-pane outputs" id="machines">
         <div class='row'>
-          <div class='col-xs-2'>
-            <div class='machines'>
-            </div>
+          <div class='col-xs-2 machines-column'>
+            <div class='machines-title'>Machines</div>
+            <div class='machines'></div>
+            <div class='aws-instances-title'>AWS Instances</div>
+            <div class='aws-instances'></div>
+            <button class='btn btn-link add-machine'><i class="ion-plus"></i> add machine</button>
           </div>
           <div class='col-xs-5'>
             <h1>stdout <span class='clear-stdout'>clear</span></h1>
@@ -228,8 +240,11 @@
       });
 
       $('.files-add').click(addFile);
+      $('.add-machine').click(addMachine);
 
       loadFiles();
+
+      loadAwsInstances();
 
       $.get('/machines').then(machines => {
         renderMachines(machines);
@@ -243,6 +258,117 @@
         $.get('/machines/' + selectedClient.id + '/clear-stderr');
       });
     });
+
+    function loadAwsInstances() {
+      var key = getAWSAccessKey();
+      var secret = getAWSSecret();
+
+      if (!key || !secret) {
+        alert('both key and secret are needed');
+      }
+
+      $.post(
+        '/aws/credentials',
+        {
+          key: key,
+          secret: secret,
+        }
+      ).then(function () {
+        return $.get(
+          '/aws/list'
+        );
+      }).then(function (instances) {
+        console.log(instances);
+        instances.forEach(function (instance) {
+          var $e = $('<div class="aws-instance">' +
+            '<div class="instance-id">' + instance.instanceId + '</div>' +
+            '<div>' + instance.ip + '</div>' +
+            '<div>>' + instance.state.Name + '</div>' +
+            '<div class="start-machine btn btn-link">Start</div>' +
+            '<div class="status"></div>' +
+            '</div>');
+          $('.aws-instances').append($e);
+
+          $('.start-machine', $e).click(function () {
+            if (instance.state.Name !== 'running') {
+              alert('instance not running yet');
+              return;
+            }
+
+            startMachine(instance.instanceId);
+          });
+
+          socket.on('aws', function (data) {
+            console.log('aws event', data);
+            if (data.instance && data.instance.instanceId == instance.instanceId) {
+              $('.status', $e).text(data.status);
+            }
+          });
+        });
+      });
+
+      function startMachine(instanceId) {
+        $.post(
+          '/aws/startMachine',
+          {
+            instanceId: instanceId,
+          }
+        ).then(function (response) {
+          console.log(response);
+        });
+      }
+    }
+
+    function getAWSAccessKey() {
+      var lsKey = 'aws_access_key';
+      var current = localStorage.getItem(lsKey);
+      var key = prompt('Get AWS Access Key ID', current);
+
+      if (key) {
+        localStorage.setItem(lsKey, key);
+      }
+
+      return key;
+    }
+
+    function getAWSSecret() {
+      var lsKey = 'aws_secret';
+      var current = localStorage.getItem(lsKey);
+      var key = prompt('Get AWS Secret', current);
+
+      if (key) {
+        localStorage.setItem(lsKey, key);
+      }
+
+      return key;
+    }
+
+    function addMachine() {
+      var key = getAWSAccessKey();
+      var secret = getAWSSecret();
+
+      if (!key || !secret) {
+        alert('both key and secret are needed');
+      }
+
+      $.post(
+        '/machines/set-aws-credentials',
+        {
+          key: key,
+          secret: secret,
+        }
+      ).then(function () {
+        return $.post(
+          '/machines/launch',
+          {
+            ami: 'ami-f6c89585', //'ami-2b86d458',
+            instanceType: 't2.micro',
+          }
+        );
+      }).then(function (response) {
+        console.log(response);
+      });;
+    }
 
     function addFile() {
       var name = prompt('filename');

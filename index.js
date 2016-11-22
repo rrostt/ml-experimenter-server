@@ -7,9 +7,11 @@ var io = socketio(server);
 var path = require('path');
 var lsSync = require('./lsSync');
 var bodyParser = require('body-parser');
+var aws = require('./aws');
 
 var fileRoute = require('./routes/file');
 var machinesRoute = require('./routes/machines');
+var awsRoute = require('./routes/aws');
 
 var Client = require('./worker-client.js');
 var clients = [];
@@ -31,55 +33,27 @@ app.get('/files', function (req, res) {
 
 app.use('/file', fileRoute);
 app.use('/machines', machinesRoute);
-
-// app.get('/machines', function (req, res) {
-//   res.json(clients.map(c => c.client.getStateObject()));
-// });
-//
-// app.get('/machines/:id/sync', function (req, res) {
-//   var id = req.params.id;
-//
-//   var client = clients.find(client => client.id == id).client;
-//   client.sync();
-// });
-//
-// app.get('/machines/:id/run', function (req, res) {
-//   var id = req.params.id;
-//   var file = req.query.file;
-//
-//   if (!file) {
-//     file = 'train.py';
-//   }
-//
-//   var client = clients.find(client => client.id == id).client;
-//   client.run('./docker_run.sh ' + file);
-// });
-//
-// app.get('/machines/:id/stop', function (req, res) {
-//   var id = req.params.id;
-//
-//   var client = clients.find(client => client.id == id).client;
-//   client.stop();
-// });
-//
-// app.get('/machines/:id/clear-stdout', (req, res) => {
-//   var id = req.params.id;
-//
-//   var client = clients.find(client => client.id == id).client;
-//   client.clearStdout();
-// });
-//
-// app.get('/machines/:id/clear-stderr', (req, res) => {
-//   var id = req.params.id;
-//
-//   var client = clients.find(client => client.id == id).client;
-//   client.clearStderr();
-// });
+app.use('/aws', awsRoute);
 
 server.listen(1234, 'localhost');
 
 var uiSockets = [];
 var clients = machinesRoute.clients;
+
+app.uiEmit = function (msg, data) {
+  uiSockets.forEach(s => {
+    s.emit(msg, data);
+  });
+};
+
+aws.on('aws-instance', (data) => {
+  console.log('aws', data);
+});
+
+aws.on('instance', (data) => {
+  console.log('aws instance event', data);
+  app.uiEmit('aws', data);
+});
 
 io.on('connection', function (socket) {
   var client; // if this connection is a client

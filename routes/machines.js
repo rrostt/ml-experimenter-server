@@ -1,11 +1,60 @@
 var fs = require('fs');
 var express = require('express');
 var router = express.Router();
+var aws = require('../aws');
 
 var clients = [];
 
 router.get('/', function (req, res) {
   res.json(clients.map(c => c.client.getStateObject()));
+});
+
+router.post('/set-aws-credentials', function (req, res) {
+  var key = req.body.key;
+  var secret = req.body.secret;
+
+  aws.setCredentials(key, secret, 'eu-west-1');
+
+  res.end();
+});
+
+router.post('/launch', function (req, res) {
+  // AMI-id
+  //
+  // launch instance
+  // wait for instance to come online
+  // upload config (with target-host, credentials (secret token?), user, project)
+  // start client service
+
+  var ami = req.body.ami;
+  var instanceType = req.body.instanceType;
+
+  if (!aws.hasCredentials()) {
+    res.send({
+      error: 'no credentials',
+    });
+    return;
+  }
+
+  aws.launch(
+    {
+      ImageId: ami,
+      InstanceType: instanceType,
+    },
+    function (err, instance) {
+      if (err) {
+        res.json({
+          error: err,
+        });
+      } else {
+        res.json({
+          status: 'ok',
+          instance: instance,
+        });
+        // aws.configure(instance);
+      }
+    }
+  );
 });
 
 router.get('/:id/sync', function (req, res) {
