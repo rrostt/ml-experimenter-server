@@ -92,6 +92,10 @@
       padding: 4px;
     }
 
+    .aws-instances-refresh {
+      float: right;
+    }
+
     .client-control {
       border: 1px solid;
       margin-bottom: 16px;
@@ -148,7 +152,7 @@
           <div class='col-xs-2 machines-column'>
             <div class='machines-title'>Machines</div>
             <div class='machines'></div>
-            <div class='aws-instances-title'>AWS Instances</div>
+            <div class='aws-instances-title'><div class='aws-instances-refresh btn btn-link'><i class='ion-refresh'></i></div>AWS Instances</div>
             <div class='aws-instances'></div>
             <button class='btn btn-link add-machine'><i class="ion-plus"></i> add machine</button>
           </div>
@@ -181,10 +185,9 @@
     var currentFile;
     var socket = io();
 
-    socket.emit('ui-connected');
-
-    socket.on('conection', function () {
+    socket.on('connect', function () {
       console.log('connected');
+      socket.emit('ui-connected', 'ask4it');
     });
 
     socket.on('disconnect', function () {
@@ -241,6 +244,7 @@
 
       $('.files-add').click(addFile);
       $('.add-machine').click(addMachine);
+      $('.aws-instances-refresh').click(refreshAwsInstances);
 
       loadFiles();
 
@@ -258,6 +262,11 @@
         $.get('/machines/' + selectedClient.id + '/clear-stderr');
       });
     });
+
+    function refreshAwsInstances() {
+      $('.aws-instances').empty();
+      loadAwsInstances();
+    }
 
     function loadAwsInstances() {
       var key = getAWSAccessKey();
@@ -279,12 +288,14 @@
         );
       }).then(function (instances) {
         console.log(instances);
+        $('.aws-instances').empty();
         instances.forEach(function (instance) {
           var $e = $('<div class="aws-instance">' +
             '<div class="instance-id">' + instance.instanceId + '</div>' +
             '<div>' + instance.ip + '</div>' +
             '<div>>' + instance.state.Name + '</div>' +
-            '<div class="start-machine btn btn-link">Start</div>' +
+            '<div class="start-machine btn btn-link">Start machine</div>' +
+            '<div class="terminate-instance btn btn-link">Terminate</div>' +
             '<div class="status"></div>' +
             '</div>');
           $('.aws-instances').append($e);
@@ -298,6 +309,10 @@
             startMachine(instance.instanceId);
           });
 
+          $('.terminate-instance', $e).click(function () {
+            terminateInstance(instance.instanceId);
+          });
+
           socket.on('aws', function (data) {
             console.log('aws event', data);
             if (data.instance && data.instance.instanceId == instance.instanceId) {
@@ -306,6 +321,15 @@
           });
         });
       });
+
+      function terminateInstance(instanceId) {
+        $.post(
+          '/aws/terminate',
+          {
+            instanceId: instanceId,
+          }
+        ).then(loadAwsInstances);
+      }
 
       function startMachine(instanceId) {
         $.post(
@@ -352,14 +376,15 @@
       }
 
       $.post(
-        '/machines/set-aws-credentials',
+//        '/machines/set-aws-credentials',
+        '/aws/credentials',
         {
           key: key,
           secret: secret,
         }
       ).then(function () {
         return $.post(
-          '/machines/launch',
+          '/aws/launch',
           {
             ami: 'ami-f6c89585', //'ami-2b86d458',
             instanceType: 't2.micro',

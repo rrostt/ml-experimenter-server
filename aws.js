@@ -7,257 +7,303 @@ var tmp = require('tmp');
 
 var lib = new EventEmitter();
 
-var config = {};
+function AwsConnection(config) {
+  var _this = this;
 
-function setAWSConfig() {
-  AWS.config.update({
-    accessKeyId: config.accessKeyId,
+  EventEmitter.call(this);
+
+  ec2 = new AWS.EC2({
+    accessKeyId: config.accessKeyid,
     secretAccessKey: config.secretAccessKey,
-  });
-
-  AWS.config.update({
     region: config.region,
   });
 
-  ec2 = new AWS.EC2();
-}
+  this.list = list;
+  this.launch = launch;
+  this.terminate = terminate;
+  this.getInstanceInfo = getInstanceInfo;
+  this.startMachine = startMachine;
 
-function setCredentials(key, secret, region) {
-  config.accessKeyId = key;
-  config.secretAccessKey = secret;
-  config.region = region;
-}
+  function list(cb) {
+    console.log('listing instances');
 
-function hasCredentials() {
-  return config.accessKeyId && config.secretAccessKey && config.region;
-}
-
-function list(cb) {
-  setAWSConfig();
-
-  ec2.describeInstances(
-    {},
-    function (err, data) {
-      if (err) {
-//        lib.emit('aws-instance', { state: 'error', instanceId: instanceId, errorReason: 'Unable to get IP', details: err });
-        cb(err);
-        return;
-      }
-
-      console.log('instances', data);
-      var instances = data.Reservations.map(r => r.Instances[0])
-        .map(instance => ({
-          instanceId: instance.InstanceId,
-          ip: instance.PublicIpAddress,
-          state: instance.State,
-        }));
-
-      cb(null, instances);
-    }
-  );
-}
-
-function launch(config, cb) {
-  setAWSConfig();
-
-  var params = {
-    ImageId: config.ImageId, // Amazon Linux AMI x86_64 EBS
-    InstanceType: config.InstanceType, //'t1.micro',
-    MinCount: 1,
-    MaxCount: 1,
-    SecurityGroupIds: ['sg-4bf2402d'],
-    KeyName: 'devenv-key',
-  };
-
-  lib.emit('aws-instance', { state: 'launching' });
-
-  ec2.runInstances(params, function (err, data) {
-    if (err) {
-      lib.emit('aws-instance', { state: 'error', errorReason: 'Unable to run instance', details: err });
-      console.log('Could not create instance', err);
-      cb(err);
-      return;
-    }
-
-    var instanceId = data.Instances[0].InstanceId;
-    console.log('Created instance', instanceId);
-
-    lib.emit('aws-instance', { state: 'starting', instanceId: instanceId });
-
-    // 1s delay to get ip
-    setTimeout(() => {
-      ec2.describeInstances(
-        {
-          InstanceIds: [instanceId],
-        },
-        function (err, data) {
-          if (err) {
-            lib.emit('aws-instance', { state: 'error', instanceId: instanceId, errorReason: 'Unable to get IP', details: err });
-            cb(err);
-            return;
-          }
-
-          console.log('ip?', data);
-
-          var ip = data.Reservations[0].Instances[0].PublicIpAddress;
-
-          lib.emit('aws-instance', { state: 'launched', instanceId: instanceId, ip: ip });
-
-          cb(null, {
-            instanceId: instanceId,
-            ip: ip,
-          });
+    ec2.describeInstances(
+      {
+        Filters: [
+          {
+            Name: 'tag-key',
+            Values: [
+              'MLE',
+            ],
+          },
+        ],
+      },
+      function (err, data) {
+        if (err) {
+          console.log('error getting instances');
+          cb(err);
+          return;
         }
-      );
-    }, 1000);
-  });
-}
 
-function getInstanceInfo(instanceId, cb) {
-  setAWSConfig();
+        var instances = data.Reservations.map(r => r.Instances[0])
+          .map(instance => ({
+            instanceId: instance.InstanceId,
+            ip: instance.PublicIpAddress,
+            state: instance.State,
+          }));
 
-  ec2.describeInstances(
-    {
-      InstanceIds: [instanceId],
-    },
-    function (err, data) {
+        cb(null, instances);
+      }
+    );
+  }
+
+  function launch(config, cb) {
+    // setAWSConfig();
+
+    var params = {
+      ImageId: config.ImageId, // Amazon Linux AMI x86_64 EBS
+      InstanceType: config.InstanceType, //'t1.micro',
+      MinCount: 1,
+      MaxCount: 1,
+      SecurityGroupIds: ['sg-4bf2402d'],
+      KeyName: 'devenv-key',
+    };
+
+    _this.emit('aws-instance', { state: 'launching' });
+
+    ec2.runInstances(params, function (err, data) {
       if (err) {
+        _this.emit('aws-instance', { state: 'error', errorReason: 'Unable to run instance', details: err });
+        console.log('Could not create instance', err);
         cb(err);
         return;
       }
 
-      console.log(data.Reservations[0].Instances[0]);
+      var instanceId = data.Instances[0].InstanceId;
+      console.log('Created instance', instanceId);
 
-      var ip = data.Reservations[0].Instances[0].PublicIpAddress;
-      var state = data.Reservations[0].Instances[0].State;
+      _this.emit('aws-instance', { state: 'starting', instanceId: instanceId });
 
-      cb(null, {
-        instanceId: instanceId,
-        ip: ip,
-        state: state,
-      });
-    }
-  );
-}
+      var tagParams = {
+        Resources: [
+          instanceId,
+        ],
+        Tags: [
+          {
+            Key: 'MLE',
+            Value: '',
+          },
+        ],
+      };
 
-function configure(instance) {
-  // wait until it comes alive
-  // waitUntilAlive(instance)
-  //   .then(uploadConfig)
-  //   .then(startService);
-  // upload configuration
-  // start service
-}
+      ec2.createTags(tagParams, function (err, data) {
+        if (err) {
+          console.log(err, err.stack); // an error occurred
+          _this.emit('aws-instance', {
+            state: 'error',
+            instanceId: instanceId,
+            errorReason: 'Unable to add tags to instance',
+            details: err,
+          });
+          cb(err);
+          return;
+        }
 
-//
-// config:
-// {
-//   host; -- where to connect
-//   machineId: -- a generated machine id.
-// }
-function startMachine(instanceId, config, cb) {
-  // 1) upload config
-  // 2) run service
-
-  getInstanceInfo(instanceId, function (err, instance) {
-    if (err) {
-      cb({
-        error: 'unable to get instance info',
-        details: err,
-      });
-      return;
-    }
-
-    console.log('making ssh connection to ' + instance.ip);
-    lib.emit('instance', {
-      instance: instance,
-      status: 'connecting',
-    });
-
-    var ssh = new NodeSsh();
-    ssh.connect({
-      host: instance.ip,
-      username: 'ubuntu',
-      privateKey: '/Users/rost/Development/aws/devenv-key.pem',
-    }).then(function () {
-      console.log('connected');
-      tmp.file(function (err, path, fd, cleanup) {
-        console.log('tmp file created');
-
-        fs.writeFile(path, JSON.stringify(config), function (err) {
-          if (err) {
-            cleanup();
-            lib.emit('instance', {
-              instance: instance,
-              status: 'error',
-              reason: 'error writing file ' + path,
-            });
-            cb({
-              error: 'error writing file',
-              details: err,
-            });
-          } else {
-            console.log('uploading file');
-            lib.emit('instance', {
-              instance: instance,
-              status: 'uploading config',
-            });
-            ssh.putFile(path, 'config.json').then(function () {
-              //
-              cleanup();
-
-              console.log('upload done');
-              lib.emit('instance', {
-                instance: instance,
-                status: 'config-uploaded',
-              });
-
-              ssh.execCommand('./start').then(function (result) {
-                lib.emit('instance', {
-                  instance: instance,
-                  status: 'service started',
-                });
-                cb(null);
-              }, function (err) {
-                lib.emit('instance', {
-                  instance: instance,
-                  status: 'error',
-                  reason: 'error starting service',
-                  details: err,
-                });
-                cb(err);
-              });
+        // 1s delay to get ip
+        setTimeout(() => {
+          ec2.describeInstances(
+            {
+              InstanceIds: [instanceId],
             },
+            function (err, data) {
+              if (err) {
+                _this.emit('aws-instance', { state: 'error', instanceId: instanceId, errorReason: 'Unable to get IP', details: err });
+                cb(err);
+                return;
+              }
 
-            function (err) {
+              console.log('ip?', data);
+
+              var ip = data.Reservations[0].Instances[0].PublicIpAddress;
+
+              _this.emit('aws-instance', { state: 'launched', instanceId: instanceId, ip: ip });
+
+              cb(null, {
+                instanceId: instanceId,
+                ip: ip,
+              });
+            }
+          );
+        }, 1000);
+      });
+    });
+  }
+
+  function terminate(instanceId, cb) {
+    var params = {
+      InstanceIds: [
+        instanceId,
+      ],
+    };
+
+    ec2.terminateInstances(params, function (err, data) {
+      if (err) {
+        _this.emit(
+          'instance',
+          {
+            state: 'error',
+            instanceId: instanceId,
+            errorReason: 'Unable to terminate',
+          }
+        );
+        cb(err);
+        return;
+      } else {
+        _this.emit('instance', { state: 'terminated', instanceId: instanceId });
+        cb(err);
+        return;
+      }
+    });
+  }
+
+  function getInstanceInfo(instanceId, cb) {
+    // setAWSConfig();
+
+    ec2.describeInstances(
+      {
+        InstanceIds: [instanceId],
+      },
+      function (err, data) {
+        if (err) {
+          cb(err);
+          return;
+        }
+
+        console.log(data.Reservations[0].Instances[0]);
+
+        var ip = data.Reservations[0].Instances[0].PublicIpAddress;
+        var state = data.Reservations[0].Instances[0].State;
+
+        cb(null, {
+          instanceId: instanceId,
+          ip: ip,
+          state: state,
+        });
+      }
+    );
+  }
+
+  //
+  // config:
+  // {
+  //   host; -- where to connect
+  //   machineId: -- a generated machine id.
+  //   accessToken: -- what token to use when connecting
+  // }
+  function startMachine(instanceId, config, cb) {
+    // 1) upload config
+    // 2) run service
+
+    getInstanceInfo(instanceId, function (err, instance) {
+      if (err) {
+        cb({
+          error: 'unable to get instance info',
+          details: err,
+        });
+        return;
+      }
+
+      console.log('making ssh connection to ' + instance.ip);
+      _this.emit('instance', {
+        instance: instance,
+        status: 'connecting',
+      });
+
+      var ssh = new NodeSsh();
+      ssh.connect({
+        host: instance.ip,
+        username: 'ubuntu',
+        privateKey: '/Users/rost/Development/aws/devenv-key.pem',
+      }).then(function () {
+        console.log('connected');
+        tmp.file(function (err, path, fd, cleanup) {
+          console.log('tmp file created');
+
+          fs.writeFile(path, JSON.stringify(config), function (err) {
+            if (err) {
               cleanup();
+              _this.emit('instance', {
+                instance: instance,
+                status: 'error',
+                reason: 'error writing file ' + path,
+              });
               cb({
-                error: 'error uploading config',
+                error: 'error writing file',
                 details: err,
               });
-            });
-          }
+            } else {
+              console.log('uploading file');
+              _this.emit('instance', {
+                instance: instance,
+                status: 'uploading config',
+              });
+              ssh.putFile(path, 'config.json').then(function () {
+                //
+                cleanup();
+
+                console.log('upload done');
+                lib.emit('instance', {
+                  instance: instance,
+                  status: 'config-uploaded',
+                });
+
+                ssh.execCommand('./start').then(function (result) {
+                  _this.emit('instance', {
+                    instance: instance,
+                    status: 'service started',
+                  });
+                  cb(null);
+                }, function (err) {
+                  _this.emit('instance', {
+                    instance: instance,
+                    status: 'error',
+                    reason: 'error starting service',
+                    details: err,
+                  });
+                  cb(err);
+                });
+              },
+
+              function (err) {
+                cleanup();
+                _this.emit('instance', {
+                  instance: instance,
+                  error: 'error uploading config',
+                });
+                cb({
+                  error: 'error uploading config',
+                  details: err,
+                });
+              });
+            }
+          });
+        });
+      }, function() {
+        console.log('error connecting');
+        _this.emit('instance', {
+          instance: instance,
+          error: 'error connecting to server over ssh',
+        });
+        cb({
+          error: 'unable to connect to instance',
+          details: err,
         });
       });
-    }, function() {
-      console.log('error connecting');
-      lib.emit('instance', {
-        instance: instance,
-        error: 'error connecting to server over ssh',
-      });
-      cb({
-        error: 'unable to connect to instance',
-        details: err,
-      });
     });
-  });
+  }
+
 }
 
-lib.setCredentials = setCredentials;
-lib.hasCredentials = hasCredentials;
-lib.list = list;
-lib.launch = launch;
-lib.configure = configure;
-lib.startMachine = startMachine;
+AwsConnection.prototype.__proto__ = EventEmitter.prototype;
 
-module.exports = lib;
+module.exports = AwsConnection;
