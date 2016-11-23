@@ -9,7 +9,7 @@ var lsSync = require('./lsSync');
 var bodyParser = require('body-parser');
 var aws = require('./aws');
 
-var UserSessions = require('./UserSessions');
+var UserSessions = require('./userSessions');
 
 var fileRoute = require('./routes/file');
 var machinesRoute = require('./routes/machines');
