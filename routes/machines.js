@@ -1,7 +1,7 @@
 var fs = require('fs');
 var express = require('express');
 var router = express.Router();
-var UserSessions = require('../UserSessions');
+var UserSessions = require('../userSessions');
 var aws = require('../aws');
 
 //var clients = [];
