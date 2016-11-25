@@ -396,7 +396,7 @@ function AwsConnection(config) {
       ssh.connect({
         host: instance.ip,
         username: 'ubuntu',
-        privateKey: getKeyFilename(config.keyName), //'/Users/rost/Development/aws/devenv-key.pem',
+        privateKey: getKeyFilename(config.keyName || KEYNAME), //'/Users/rost/Development/aws/devenv-key.pem',
       }).then(function () {
         console.log('connected');
         tmp.file(function (err, path, fd, cleanup) {
@@ -461,7 +461,7 @@ function AwsConnection(config) {
             }
           });
         });
-      }, () => {
+      }, (err) => {
         console.log('error connecting');
         _this.emit('instance', {
           instance: instance,
