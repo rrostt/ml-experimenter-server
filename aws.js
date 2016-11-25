@@ -2,10 +2,15 @@ const EventEmitter = require('events');
 var AWS = require('aws-sdk');
 var ec2 = new AWS.EC2();
 var NodeSsh = require('node-ssh');
-var fs = require('fs');
+var fs = require('node-fs-extra');
 var tmp = require('tmp');
+var path = require('path');
 
 var lib = new EventEmitter();
+
+const TAGNAME = 'MLE';
+const KEYNAME = 'mle';
+const GROUPNAME = 'mle';
 
 function AwsConnection(config) {
   var _this = this;
@@ -13,7 +18,7 @@ function AwsConnection(config) {
   EventEmitter.call(this);
 
   ec2 = new AWS.EC2({
-    accessKeyId: config.accessKeyid,
+    accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     region: config.region,
   });
@@ -33,7 +38,7 @@ function AwsConnection(config) {
           {
             Name: 'tag-key',
             Values: [
-              'MLE',
+              TAGNAME,
             ],
           },
         ],
@@ -57,84 +62,252 @@ function AwsConnection(config) {
     );
   }
 
-  function launch(config, cb) {
-    // setAWSConfig();
-
-    var params = {
-      ImageId: config.ImageId, // Amazon Linux AMI x86_64 EBS
-      InstanceType: config.InstanceType, //'t1.micro',
-      MinCount: 1,
-      MaxCount: 1,
-      SecurityGroupIds: ['sg-4bf2402d'],
-      KeyName: 'devenv-key',
-    };
-
-    _this.emit('aws-instance', { state: 'launching' });
-
-    ec2.runInstances(params, function (err, data) {
-      if (err) {
-        _this.emit('aws-instance', { state: 'error', errorReason: 'Unable to run instance', details: err });
-        console.log('Could not create instance', err);
-        cb(err);
-        return;
-      }
-
-      var instanceId = data.Instances[0].InstanceId;
-      console.log('Created instance', instanceId);
-
-      _this.emit('aws-instance', { state: 'starting', instanceId: instanceId });
-
-      var tagParams = {
-        Resources: [
-          instanceId,
-        ],
-        Tags: [
-          {
-            Key: 'MLE',
-            Value: '',
-          },
+  function checkOrCreateSecurityGroup() {
+    console.log('checking security group');
+    return new Promise((resolve, reject) => {
+      var params = {
+        GroupNames: [
+          GROUPNAME,
         ],
       };
 
-      ec2.createTags(tagParams, function (err, data) {
+      ec2.describeSecurityGroups(params, function (err, data) {
         if (err) {
-          console.log(err, err.stack); // an error occurred
+          if (err.code == 'InvalidGroup.NotFound') {
+            createSecurityGroup();
+          } else {
+            reject(true);
+          }
+        } else {
+          config.securityGroupId = data.SecurityGroups[0].GroupId;
+          if (data.SecurityGroups[0].IpPermissions.length == 0) {
+            addSecurityPermission(data.SecurityGroups[0].GroupId);
+          } else {
+            resolve(true);
+          }
+        }
+
+      });
+
+      function createSecurityGroup() {
+        var params = {
+          Description: 'ssh open to outside world', /* required */
+          GroupName: GROUPNAME, /* required */
+        };
+        ec2.createSecurityGroup(params, function (err, data) {
+          if (err) {
+            console.log(err, err.stack); // an error occurred
+            reject(false);
+          } else {
+            config.securityGroupId = data.GroupId;
+            addSecurityPermission(config.securityGroupId);
+          }
+        });
+      }
+
+      function addSecurityPermission(GroupId) {
+        var params = {
+          GroupId: GroupId,
+          IpProtocol: 'tcp',
+          FromPort: 22,
+          ToPort: 22,
+          CidrIp: '0.0.0.0/0',
+        };
+        ec2.authorizeSecurityGroupIngress(params, function (err, data) {
+          if (err) {
+            console.log(err, err.stack);
+            reject(false);
+          } else {
+            resolve(true);
+          }
+        });
+      }
+
+    });
+  }
+
+  function checkOrCreateKeyPair() {
+    console.log('checking key pair');
+    config.keyName = KEYNAME;
+
+    return new Promise((resolve, reject) => {
+      var params = {
+        KeyNames: [
+          config.keyName,
+        ],
+      };
+
+      ec2.describeKeyPairs(params, function (err, data) {
+        if (err) {
+          console.log(err);
+          if (err.code === 'InvalidKeyPair.NotFound') {
+            console.log('keypair not found, creating');
+            createKeyPair(config.keyName).then(resolve, reject);
+          } else {
+            reject(err);
+          }
+        } else {
+          console.log(data);
+          resolve();
+        }
+      });
+    });
+  }
+
+  function createKeyPair(keyName) {
+    return new Promise((resolve, reject) => {
+      var params = {
+        KeyName: keyName,
+      };
+
+      ec2.createKeyPair(params, function (err, data) {
+        if (err) {
+          console.log(err); // an error occurred
+          reject(err);
+        } else {
+          console.log('created key');
+          saveKey(keyName, data.KeyMaterial).then(resolve, reject);
+        }
+      });
+    });
+  }
+
+  function saveKey(keyName, key) {
+    return new Promise((resolve, reject) => {
+      var filename = getKeyFilename(keyName);
+
+      console.log('saving key to ' + filename);
+
+      fs.mkdirs(path.dirname(filename), (err) => {
+        if (err) {
+          console.log('error creating key directories');
+          reject(err);
+        } else {
+          fs.writeFile(filename, key, function (err) {
+            if (err) {
+              console.log('error writing key file', filename);
+              reject(err);
+            } else {
+              console.log('successfully saved key file', filename);
+              resolve();
+            }
+          });
+        }
+      });
+    });
+  }
+
+  function getKeyFilename(keyName) {
+    return path.join(
+      __dirname,
+      'awsKeys',
+      config.accessKeyId,
+      keyName + '.pem'
+    );
+  }
+
+  function launch(instanceConfig, cb) {
+
+    checkOrCreateSecurityGroup().then(() => (
+      checkOrCreateKeyPair()
+    )).then(() => {
+
+      var params = {
+        ImageId: instanceConfig.ImageId,  // AMI
+        InstanceType: instanceConfig.InstanceType,
+        MinCount: 1,
+        MaxCount: 1,
+        SecurityGroupIds: [config.securityGroupId],
+        KeyName: config.keyName,
+      };
+
+      _this.emit('aws-instance', { state: 'launching' });
+
+      ec2.runInstances(params, function (err, data) {
+        if (err) {
           _this.emit('aws-instance', {
             state: 'error',
-            instanceId: instanceId,
-            errorReason: 'Unable to add tags to instance',
+            errorReason: 'Unable to run instance',
             details: err,
           });
+          console.log('Could not create instance', err);
           cb(err);
           return;
         }
 
-        // 1s delay to get ip
-        setTimeout(() => {
-          ec2.describeInstances(
+        var instanceId = data.Instances[0].InstanceId;
+        console.log('Created instance', instanceId);
+
+        _this.emit('aws-instance', { state: 'starting', instanceId: instanceId });
+
+        var tagParams = {
+          Resources: [
+            instanceId,
+          ],
+          Tags: [
             {
-              InstanceIds: [instanceId],
+              Key: TAGNAME,
+              Value: '',
             },
-            function (err, data) {
-              if (err) {
-                _this.emit('aws-instance', { state: 'error', instanceId: instanceId, errorReason: 'Unable to get IP', details: err });
-                cb(err);
-                return;
+          ],
+        };
+
+        ec2.createTags(tagParams, function (err, data) {
+          if (err) {
+            console.log(err, err.stack); // an error occurred
+            _this.emit('aws-instance', {
+              state: 'error',
+              // instanceId: instanceId,
+              errorReason: 'Unable to add tags to instance',
+              details: err,
+            });
+            cb(err);
+            return;
+          }
+
+          // 1s delay to get ip
+          setTimeout(() => {
+            ec2.describeInstances(
+              {
+                InstanceIds: [instanceId],
+              },
+              function (err, data) {
+                if (err) {
+                  _this.emit('aws-instance', {
+                    state: 'error',
+                    // instanceId: instanceId,
+                    errorReason: 'Unable to get IP',
+                    details: err,
+                  });
+                  cb(err);
+                  return;
+                }
+
+                console.log('ip?', data);
+
+                var ip = data.Reservations[0].Instances[0].PublicIpAddress;
+
+                _this.emit('aws-instance', {
+                  state: 'launched',
+                  data: {
+                    instanceId: instanceId,
+                    ip: ip,
+                  },
+                });
+
+                cb(null, {
+                  instanceId: instanceId,
+                  ip: ip,
+                });
               }
-
-              console.log('ip?', data);
-
-              var ip = data.Reservations[0].Instances[0].PublicIpAddress;
-
-              _this.emit('aws-instance', { state: 'launched', instanceId: instanceId, ip: ip });
-
-              cb(null, {
-                instanceId: instanceId,
-                ip: ip,
-              });
-            }
-          );
-        }, 1000);
+            );
+          }, 1000);
+        });
+      });
+    }).catch(err => {
+      console.log('error catched', err);
+      cb({
+        error: 'unable to setup security group and keypairs',
       });
     });
   }
@@ -200,7 +373,7 @@ function AwsConnection(config) {
   //   machineId: -- a generated machine id.
   //   accessToken: -- what token to use when connecting
   // }
-  function startMachine(instanceId, config, cb) {
+  function startMachine(instanceId, machineConfig, cb) {
     // 1) upload config
     // 2) run service
 
@@ -223,13 +396,13 @@ function AwsConnection(config) {
       ssh.connect({
         host: instance.ip,
         username: 'ubuntu',
-        privateKey: '/Users/rost/Development/aws/devenv-key.pem',
+        privateKey: getKeyFilename(config.keyName), //'/Users/rost/Development/aws/devenv-key.pem',
       }).then(function () {
         console.log('connected');
         tmp.file(function (err, path, fd, cleanup) {
           console.log('tmp file created');
 
-          fs.writeFile(path, JSON.stringify(config), function (err) {
+          fs.writeFile(path, JSON.stringify(machineConfig), function (err) {
             if (err) {
               cleanup();
               _this.emit('instance', {
@@ -288,7 +461,7 @@ function AwsConnection(config) {
             }
           });
         });
-      }, function() {
+      }, () => {
         console.log('error connecting');
         _this.emit('instance', {
           instance: instance,

@@ -4,10 +4,10 @@ var app = express();
 var server = require('http').Server(app);
 var socketio = require('socket.io');
 var io = socketio(server);
-var path = require('path');
 var lsSync = require('./lsSync');
 var bodyParser = require('body-parser');
 var aws = require('./aws');
+var jwt = require('express-jwt');
 
 var UserSessions = require('./userSessions');
 
@@ -30,14 +30,38 @@ const pwd = 'src/';
 
 app.use(express.static('public'));
 
+app.use(function (req, res, next) {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, authorization");
+  next();
+});
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use(function (req, res, next) {
-  req.body.accessToken = 'ask4it';
+  if (req.headers && req.headers.authorization) {
+    var parts = req.headers.authorization.split(' ');
+    if (parts.length == 2) {
+      var scheme = parts[0];
+      var credentials = parts[1];
 
-  if (req.body.accessToken) {
-    var userSession = UserSessions.getByToken(req.body.accessToken);
+      req.jwt = credentials;
+      req.body.accessToken = req.jwt;
+    }
+  }
+
+  next();
+});
+
+app.use(jwt({ secret: 's3cr3t', credentialsRequired: false }));
+
+app.use(function (req, res, next) {
+//  req.body.accessToken = 'ask4it';
+
+  // if (req.user && req.user.accessToken) {
+  if (req.jwt) {
+    var userSession = UserSessions.getByToken(req.jwt);
     req.userSession = userSession;
   }
 
@@ -57,25 +81,7 @@ app.use('/file', fileRoute);
 app.use('/machines', machinesRoute);
 app.use('/aws', awsRoute);
 
-server.listen(1234, 'localhost');
-
-// var uiSockets = [];
-// var clients = machinesRoute.clients;
-
-// app.uiEmit = function (msg, data) {
-//   // uiSockets.forEach(s => {
-//   //   s.emit(msg, data);
-//   // });
-// };
-//
-// aws.on('aws-instance', (data) => {
-//   console.log('aws', data);
-// });
-//
-// aws.on('instance', (data) => {
-//   console.log('aws instance event', data);
-//   app.uiEmit('aws', data);
-// });
+server.listen(1234); //, 'localhost');
 
 io.on('connection', function (socket) {
   var userSession;

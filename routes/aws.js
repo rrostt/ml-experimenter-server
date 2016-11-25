@@ -12,7 +12,7 @@ router.post('/credentials', function (req, res) {
   var region = req.body.region || 'eu-west-1';
 
   awsCredentials = {
-    accessKeyid: key,
+    accessKeyId: key,
     secretAccessKey: secret,
     region: region,
   };
