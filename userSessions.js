@@ -54,7 +54,11 @@ function UserSession() {
   }
 
   function removeClient(client) {
-    clients.splice(clients.indexOf(client), 1);
+    var i = clients.findIndex(o => o.id == client.id);
+
+    if (i !== -1) {
+      clients.splice(i, 1);
+    }
   }
 
   function addUiSocket(socket) {
