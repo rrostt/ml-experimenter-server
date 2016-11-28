@@ -25,6 +25,8 @@ function Client(socket, initialState) {
   });
 
   socket.on('stdout', function (data) {
+    parseOutput(data);
+
     console.log('>', data);
     _this.stdout += data;
 
@@ -80,12 +82,48 @@ function Client(socket, initialState) {
   this.clearStdout = () => {
     _this.stdout = '';
     _this.emit('change');
+
+    clearDatasets();
   };
 
   this.clearStderr = () => {
     _this.stderr = '';
     _this.emit('change');
   };
+
+  function parseOutput(output) {
+    var lines = output.split('\n');
+
+    lines.forEach(line => {
+      if (!line.startsWith('#')) {
+        return;
+      }
+
+      var parts = line.split(' ');
+      var name = parts[0];
+      var values = parts.slice(1);
+
+      addValuesToDataset(name, values);
+    });
+  }
+
+  var datasets = {};
+  function addValuesToDataset(name, values) {
+    if (!datasets.hasOwnProperty(name)) {
+      datasets[name] = [];
+    }
+
+    datasets[name].push(values);
+
+    _this.emit('dataset-changed', { machineId: _this.state.id, name: name, values: datasets[name].slice() });
+  }
+
+  function clearDatasets() {
+    Object.keys(datasets).forEach(name => {
+      datasets[name].splice(0);
+      _this.emit('dataset-changed', { machineId: _this.state.id, name: name, values: datasets[name].slice() });
+    });
+  }
 }
 
 util.inherits(Client, EventEmitter);

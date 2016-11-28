@@ -15,30 +15,31 @@ var fileRoute = require('./routes/file');
 var machinesRoute = require('./routes/machines');
 var awsRoute = require('./routes/aws');
 var authRoute = require('./routes/auth');
+var settingsRoute = require('./routes/settings');
+
+require('mongoose').connect('mongodb://mongo/mle');
+
+var User = require('./models/user');
 
 var Client = require('./worker-client.js');
 
 const pwd = 'src/';
 
-//
-// on http enpoints expect user token
-//
-// create UIs and set of clients per user
-// when ui connects on socketio, await auth that identifies user and then add to users ui sokets
-// when worker connects expect user-token in state
-//
-
 app.use(express.static('public'));
 
 app.use(function (req, res, next) {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, authorization");
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header(
+    'Access-Control-Allow-Headers',
+    'Origin, X-Requested-With, Content-Type, Accept, authorization'
+  );
   next();
 });
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// capture jwt and accessToken
 app.use(function (req, res, next) {
   if (req.headers && req.headers.authorization) {
     var parts = req.headers.authorization.split(' ');
@@ -56,32 +57,41 @@ app.use(function (req, res, next) {
 
 app.use(jwt({ secret: 's3cr3t', credentialsRequired: false }));
 
+// check jwt and get usersession
 app.use(function (req, res, next) {
-//  req.body.accessToken = 'ask4it';
-
-  // if (req.user && req.user.accessToken) {
   if (req.jwt) {
     var userSession = UserSessions.getByToken(req.jwt);
     req.userSession = userSession;
+
+    User.findOne({ login: req.user.login }).then(user => req.user = user);
   }
 
   next();
 });
 
+function requireUserSession(req, res, next) {
+  if (!!req.userSession) {
+    next();
+  } else {
+    res.json({ noauth: true, error: 'not logged in' });
+  }
+}
+
 app.get('/', function (req, res) {
   res.send('hello');
 });
 
-app.get('/files', function (req, res) {
+app.get('/files', requireUserSession, function (req, res) {
   res.json(lsSync(pwd));
 });
 
+app.use('/settings', settingsRoute);
 app.use('/auth', authRoute);
-app.use('/file', fileRoute);
-app.use('/machines', machinesRoute);
-app.use('/aws', awsRoute);
+app.use('/file', requireUserSession, fileRoute);
+app.use('/machines', requireUserSession, machinesRoute);
+app.use('/aws', requireUserSession, awsRoute);
 
-server.listen(1234); //, 'localhost');
+server.listen(1234);
 
 io.on('connection', function (socket) {
   var userSession;
@@ -104,6 +114,10 @@ io.on('connection', function (socket) {
     client.on('change', () => {
       console.log('change happened'); //, uiSockets.length);
       userSession.emitOnUi('machine-state', client.getStateObject());
+    });
+
+    client.on('dataset-changed', (data) => {
+      userSession.emitOnUi('dataset-changed', data);
     });
   });
 
