@@ -1,4 +1,5 @@
 var fs = require('fs');
+var path = require('path');
 var express = require('express');
 var app = express();
 var server = require('http').Server(app);
@@ -7,7 +8,9 @@ var io = socketio(server);
 var lsSync = require('./lsSync');
 var bodyParser = require('body-parser');
 var aws = require('./aws');
-var jwt = require('express-jwt');
+var jwt = require('jsonwebtoken');
+var expressJwt = require('express-jwt');
+var config = require('./config');
 
 var UserSessions = require('./userSessions');
 
@@ -16,14 +19,13 @@ var machinesRoute = require('./routes/machines');
 var awsRoute = require('./routes/aws');
 var authRoute = require('./routes/auth');
 var settingsRoute = require('./routes/settings');
+var projectsRoute = require('./routes/projects');
 
 require('mongoose').connect('mongodb://mongo/mle');
 
 var User = require('./models/user');
 
 var Client = require('./worker-client.js');
-
-const pwd = 'src/';
 
 app.use(express.static('public'));
 
@@ -55,22 +57,26 @@ app.use(function (req, res, next) {
   next();
 });
 
-app.use(jwt({ secret: 's3cr3t', credentialsRequired: false }));
+app.use(expressJwt({ secret: config.jwtSecret, credentialsRequired: false }));
 
 // check jwt and get usersession
 app.use(function (req, res, next) {
   if (req.jwt) {
-    var userSession = UserSessions.getByToken(req.jwt);
+    var userSession = UserSessions.getByLogin(req.user.login);
     req.userSession = userSession;
 
-    User.findOne({ login: req.user.login }).then(user => req.user = user);
+    User.findOne({ login: req.user.login })
+    .then(user => {
+      req.user = user;
+      next();
+    });
+  } else {
+    next();
   }
-
-  next();
 });
 
 function requireUserSession(req, res, next) {
-  if (!!req.userSession) {
+  if (!!req.user) {
     next();
   } else {
     res.json({ noauth: true, error: 'not logged in' });
@@ -82,7 +88,7 @@ app.get('/', function (req, res) {
 });
 
 app.get('/files', requireUserSession, function (req, res) {
-  res.json(lsSync(pwd));
+  res.json(lsSync(req.user.getDir()));
 });
 
 app.use('/settings', settingsRoute);
@@ -90,6 +96,7 @@ app.use('/auth', authRoute);
 app.use('/file', requireUserSession, fileRoute);
 app.use('/machines', requireUserSession, machinesRoute);
 app.use('/aws', requireUserSession, awsRoute);
+app.use('/projects', requireUserSession, projectsRoute);
 
 server.listen(1234);
 
@@ -100,31 +107,57 @@ io.on('connection', function (socket) {
   console.log('connected client');
 
   socket.on('worker-connected', (state) => {
-    console.log('worker', state);
-    userSession = UserSessions.getByToken(state.accessToken);
-    if (!userSession) {
-      userSession = UserSessions.createNewUserSession(state.accessToken);
+    var login;
+    try {
+      var jwtData = jwt.verify(state.accessToken, config.jwtSecret);
+      login = jwtData.login;
+    } catch (e) {
+      console.log('INVALID access token. jwt unable to verify token.');
+      return;
     }
 
-    console.log('new worker connected'); //, clients.length);
-    client = new Client(socket, state);
-    userSession.addClient(client);
-    userSession.emitOnUi('machines', userSession.getClientStates());
+    console.log('worker trying to connect', state, login);
+    userSession = UserSessions.getByLogin(login);
+    if (!userSession) {
+      userSession = UserSessions.createNewUserSession(state.accessToken, login);
+    }
 
-    client.on('change', () => {
-      console.log('change happened'); //, uiSockets.length);
-      userSession.emitOnUi('machine-state', client.getStateObject());
-    });
+    User.findOne({ login: login }).then(user => {
+      try {
+        console.log('new worker connected', user); //, clients.length);
+        client = new Client(socket, state, user);
+        userSession.addClient(client);
+        userSession.emitOnUi('machines', userSession.getClientStates());
 
-    client.on('dataset-changed', (data) => {
-      userSession.emitOnUi('dataset-changed', data);
+        client.on('change', () => {
+          console.log('change happened'); //, uiSockets.length);
+          userSession.emitOnUi('machine-state', client.getStateObject());
+        });
+
+        client.on('dataset-changed', (data) => {
+          userSession.emitOnUi('dataset-changed', data);
+        });
+      } catch (e) {
+        console.log('something', e);
+      }
     });
   });
 
   socket.on('ui-connected', (accessToken) => {
-    userSession = UserSessions.getByToken(accessToken);
+    console.log('ui connecting', accessToken);
+
+    var login;
+    try {
+      var jwtData = jwt.verify(accessToken, config.jwtSecret);
+      login = jwtData.login;
+    } catch (e) {
+      console.log('INVALID access token. jwt unable to verify token.', e);
+      return;
+    }
+
+    userSession = UserSessions.getByLogin(login);
     if (!userSession) {
-      userSession = UserSessions.createNewUserSession(accessToken);
+      userSession = UserSessions.createNewUserSession(accessToken, login);
     }
 
     userSession.addUiSocket(socket);

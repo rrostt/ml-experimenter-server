@@ -1,14 +1,14 @@
-var fs = require('node-fs-extra');
+var fs = require('fs-extra');
 var path = require('path');
 var express = require('express');
 var router = express.Router();
 
-const pwd = 'src/';
-
 router.post('/add', function (req, res) {
   var file = req.body.name;
 
-  var filepath = path.join(pwd, file);
+  var cwd = req.user.getDir();
+
+  var filepath = path.join(cwd, file);
   fs.access(filepath, (err) => {
     if (!err) {
       res.json({
@@ -35,8 +35,10 @@ router.post('/mv', function (req, res) {
   var fileFrom = req.body.from;
   var fileTo = req.body.to;
 
-  var fileFromPath = path.join(pwd, fileFrom);
-  var fileToPath = path.join(pwd, fileTo);
+  var cwd = req.user.getDir();
+
+  var fileFromPath = path.join(cwd, fileFrom);
+  var fileToPath = path.join(cwd, fileTo);
 
   fs.access(fileToPath, (err) => {
     if (err == null || err.errno !== -2) {
@@ -62,7 +64,9 @@ router.post('/mv', function (req, res) {
 router.post('/rm', function (req, res) {
   var file = req.body.name;
 
-  var filepath = path.join(pwd, file);
+  var cwd = req.user.getDir();
+
+  var filepath = path.join(cwd, file);
   fs.unlink(filepath, (err) => {
     if (err) {
       res.json({
@@ -77,7 +81,9 @@ router.post('/rm', function (req, res) {
 router.get('/', function (req, res) {
   var file = req.query.name;
 
-  fs.readFile(path.join(pwd, file), (err, content) => {
+  var cwd = req.user.getDir();
+
+  fs.readFile(path.join(cwd, file), (err, content) => {
     res.send('' + content);
   });
 });
@@ -86,7 +92,9 @@ router.post('/', function (req, res) {
   var file = req.body.name;
   var content = req.body.content;
 
-  fs.writeFile(path.join(pwd, file), content, (err) => {
+  var cwd = req.user.getDir();
+
+  fs.writeFile(path.join(cwd, file), content, (err) => {
     if (err) {
       res.json({ error: true });
     } else {

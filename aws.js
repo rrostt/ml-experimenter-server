@@ -1,7 +1,7 @@
 const EventEmitter = require('events');
 var AWS = require('aws-sdk');
 var NodeSsh = require('node-ssh');
-var fs = require('node-fs-extra');
+var fs = require('fs-extra');
 var tmp = require('tmp');
 var path = require('path');
 

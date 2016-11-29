@@ -11,10 +11,22 @@ function getByToken(token) {
   }
 }
 
-function createNewUserSession(token) {
+function getByLogin(login) {
+  var result = userSessions.find(
+    x => x.login === login
+  );
+  if (result) {
+    return result.session;
+  } else {
+    return null;
+  }
+}
+
+function createNewUserSession(token, login) {
   var session = new UserSession();
   userSessions.push({
     token: token,
+    login: login,
     session: session,
   });
   return session;
@@ -80,6 +92,6 @@ function UserSession() {
 
 module.exports = {
   getByToken: getByToken,
+  getByLogin: getByLogin,
   createNewUserSession: createNewUserSession,
-  UserSession: UserSession,
 };

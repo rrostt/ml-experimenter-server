@@ -10,15 +10,17 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "archiver": "^1.2.0",
     "aws-sdk": "^2.7.5",
     "body-parser": "^1.15.2",
     "express": "^4.14.0",
     "express-jwt": "^5.1.0",
+    "fs-extra": "^1.0.0",
     "jsonwebtoken": "^7.1.9",
     "mongoose": "^4.7.0",
-    "node-fs-extra": "^0.8.1",
     "node-ssh": "^3.0.1",
     "socket.io": "^1.5.1",
-    "tmp": "0.0.31"
+    "tmp": "0.0.31",
+    "unzip": "^0.1.11"
   }
 }

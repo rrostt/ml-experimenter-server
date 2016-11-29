@@ -4,9 +4,7 @@ const util = require('util');
 const lsSync = require('./lsSync');
 const EventEmitter = require('events').EventEmitter;
 
-const pwd = 'src/';
-
-function Client(socket, initialState) {
+function Client(socket, initialState, user) {
   var _this = this;
 
   this.state = Object.assign({}, initialState);
@@ -14,6 +12,8 @@ function Client(socket, initialState) {
   this.id = this.state.id || new Date().getTime();
   this.stdout = '';
   this.stderr = '';
+
+  const cwd = user.getDir();
 
   socket.on('state-change', state => {
     Object.assign(_this.state, state);
@@ -48,12 +48,12 @@ function Client(socket, initialState) {
     var count = 0;
     data.forEach((file) => {
       count++;
-      fs.readFile(path.join(pwd, file.name), (err, buf) => {
+      fs.readFile(path.join(cwd, file.name), (err, buf) => {
         count--;
         if (err) {
           console.log('error reading file');
         } else {
-          var mode = fs.statSync(path.join(pwd, file.name)).mode;
+          var mode = fs.statSync(path.join(cwd, file.name)).mode;
           socket.emit('file', { name: file.name, mode: mode, buf: buf });
         }
       });
@@ -76,7 +76,7 @@ function Client(socket, initialState) {
   };
 
   this.sync = function () {
-    socket.emit('sync', lsSync(pwd));
+    socket.emit('sync', lsSync(cwd));
   };
 
   this.clearStdout = () => {

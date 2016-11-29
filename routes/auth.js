@@ -4,9 +4,10 @@ var router = express.Router();
 var appConfig = require('../config.json');
 var jwt = require('jsonwebtoken');
 
-var User = require('../models/user');
+var config = require('../config');
 
-var sessions = [];
+var UserSessions = require('../userSessions');
+var User = require('../models/user');
 
 router.post('/login', (req, res) => {
   console.log('login');
@@ -17,18 +18,21 @@ router.post('/login', (req, res) => {
   User.findOne({ login: login, password: password }).then(
     (user) => {
       if (user) {
-        var session = sessions.find((session) => session.login === login);
-        if (!session) {
-          var accessToken = jwt.sign({ login: login }, 's3cr3t');
-          session = {
-            login: login,
-            accessToken: accessToken,
-          };
+        var accessToken = jwt.sign({ login: login }, config.jwtSecret);
+        session = {
+          login: login,
+          accessToken: accessToken,
+        };
 
-          sessions.push(session);
+        var userSession = UserSessions.getByLogin(login);
+        if (!userSession) {
+          userSession = UserSessions.createNewUserSession(accessToken, login);
+          console.log('created user session');
         }
 
         res.json(session);
+
+        user.verifySetup();
       } else {
         res.json({ error: 'wrong credentials' });
       }
