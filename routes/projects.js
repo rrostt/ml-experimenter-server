@@ -61,6 +61,11 @@ router.get('/new', (req, res) => {
 });
 
 router.post('/rename/:name', (req, res) => {
+  if (!(/^[a-zA-Z_-]*$/g.test(req.body.newName))) {
+    res.json({ error: 'invalid project name' });
+    return;
+  }
+
   Project.findOne({ login: req.user.login, name: req.params.name })
   .then(project => {
     if (project) {

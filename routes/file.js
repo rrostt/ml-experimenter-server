@@ -2,6 +2,37 @@ var fs = require('fs-extra');
 var path = require('path');
 var express = require('express');
 var router = express.Router();
+var fileUpload = require('express-fileupload');
+
+router.post('/upload', fileUpload(), (req, res) => {
+  var files = req.files;
+
+  var cwd = req.user.getDir();
+
+  console.log('files', files);
+
+  var moveFiles = Object.keys(files).map(name => new Promise((resolve, reject) => {
+    var file = files[name];
+
+    // replace all non alphanumeric characters with _
+    var filename = name.replace(/[^a-z0-9_\.-]/gi, '_');
+
+    file.mv(path.join(cwd, filename), err => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  }));
+  Promise.all(moveFiles)
+  .then(() => {
+    res.send({ status: 'ok' });
+  }, (err) => {
+    console.log('error moving uploaded files', err);
+    res.send({ error: 'unable to save files' });
+  });
+});
 
 router.post('/add', function (req, res) {
   var file = req.body.name;
@@ -34,6 +65,8 @@ router.post('/add', function (req, res) {
 router.post('/mv', function (req, res) {
   var fileFrom = req.body.from;
   var fileTo = req.body.to;
+
+  console.log('mv', fileFrom, fileTo);
 
   var cwd = req.user.getDir();
 
