@@ -87,4 +87,20 @@ router.post('/rename/:name', (req, res) => {
   });
 });
 
+router.post('/git-clone', (req, res) => {
+  var url = req.body.url;
+
+  Project.gitClone(req.user, url)
+  .then(
+    () => {
+      res.json({});
+    },
+
+    err => {
+      console.log('error cloning', err);
+      res.json({ error: 'unable to clone git' });
+    }
+  );
+});
+
 module.exports = router;

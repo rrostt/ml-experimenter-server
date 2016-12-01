@@ -1,12 +1,16 @@
 var fs = require('fs');
 var path = require('path');
 
-module.exports = function lsSync(cwd) {
+module.exports = function lsSync(cwd, ignore = []) {
   return walkSync(cwd, []);
 
   function walkSync(dir, filelist) {
     var files = fs.readdirSync(dir);
     files.forEach(function (file) {
+      if (ignore.indexOf(file) !== -1) {
+        return;
+      }
+
       var filepath = path.join(dir, file);
       var stats = fs.statSync(filepath);
       if (stats.isDirectory()) {

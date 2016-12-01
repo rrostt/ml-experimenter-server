@@ -88,11 +88,11 @@ app.get('/', function (req, res) {
 });
 
 app.get('/files', requireUserSession, function (req, res) {
-  res.json(lsSync(req.user.getDir()));
+  res.json(lsSync(req.user.getDir(), ['.git']));
 });
 
-app.use('/settings', settingsRoute);
 app.use('/auth', authRoute);
+app.use('/settings', requireUserSession, settingsRoute);
 app.use('/file', requireUserSession, fileRoute);
 app.use('/machines', requireUserSession, machinesRoute);
 app.use('/aws', requireUserSession, awsRoute);

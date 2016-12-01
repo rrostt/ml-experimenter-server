@@ -3,6 +3,7 @@ var express = require('express');
 var router = express.Router();
 var appConfig = require('../config.json');
 var jwt = require('jsonwebtoken');
+var bcrypt = require('bcrypt');
 
 var config = require('../config');
 
@@ -15,24 +16,32 @@ router.post('/login', (req, res) => {
   var login = req.body.login;
   var password = req.body.password;
 
-  User.findOne({ login: login, password: password }).then(
+  User.findOne({ login: login }).then(
     (user) => {
       if (user) {
-        var accessToken = jwt.sign({ login: login }, config.jwtSecret);
-        session = {
-          login: login,
-          accessToken: accessToken,
-        };
+        bcrypt.compare(password, user.password, (err, match) => {
+          if (!match) {
+            console.log('wrong password login attempt');
+            res.json({ error: 'wrong credentials' });
+            return;
+          }
 
-        var userSession = UserSessions.getByLogin(login);
-        if (!userSession) {
-          userSession = UserSessions.createNewUserSession(accessToken, login);
-          console.log('created user session');
-        }
+          var accessToken = jwt.sign({ login: login }, config.jwtSecret);
+          session = {
+            login: login,
+            accessToken: accessToken,
+          };
 
-        res.json(session);
+          var userSession = UserSessions.getByLogin(login);
+          if (!userSession) {
+            userSession = UserSessions.createNewUserSession(accessToken, login);
+            console.log('created user session');
+          }
 
-        user.verifySetup();
+          res.json(session);
+
+          user.verifySetup();
+        });
       } else {
         res.json({ error: 'wrong credentials' });
       }
