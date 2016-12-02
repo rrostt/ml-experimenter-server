@@ -76,7 +76,7 @@ function Client(socket, initialState, user) {
   };
 
   this.sync = function () {
-    socket.emit('sync', lsSync(cwd));
+    socket.emit('sync', lsSync(cwd, ['.git']));
   };
 
   this.clearStdout = () => {
