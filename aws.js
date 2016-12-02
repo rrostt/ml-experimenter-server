@@ -54,6 +54,7 @@ function AwsConnection(config) {
         var instances = data.Reservations.map(r => r.Instances[0])
           .map(instance => ({
             instanceId: instance.InstanceId,
+            instanceType: instance.InstanceType,
             ip: instance.PublicIpAddress,
             state: instance.State,
           }));
@@ -391,10 +392,12 @@ function AwsConnection(config) {
         console.log(data.Reservations[0].Instances[0]);
 
         var ip = data.Reservations[0].Instances[0].PublicIpAddress;
+        var type = data.Reservations[0].Instances[0].InstanceType;
         var state = data.Reservations[0].Instances[0].State;
 
         cb(null, {
           instanceId: instanceId,
+          instanceType: type,
           ip: ip,
           state: state,
         });
