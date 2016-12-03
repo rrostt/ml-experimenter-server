@@ -91,6 +91,11 @@ function Client(socket, initialState, user) {
     _this.emit('change');
   };
 
+  this.rename = (newName) => {
+    Object.assign(_this.state, { name: newName });
+    _this.emit('change');
+  };
+
   function parseOutput(output) {
     var lines = output.split('\n');
 
@@ -115,13 +120,23 @@ function Client(socket, initialState, user) {
 
     datasets[name].push(values);
 
-    _this.emit('dataset-changed', { machineId: _this.state.id, name: name, values: datasets[name].slice() });
+    _this.emit('dataset-changed', {
+      machineName: _this.state.name || _this.state.id,
+      machineId: _this.state.id,
+      name: name,
+      values: datasets[name].slice(),
+    });
   }
 
   function clearDatasets() {
     Object.keys(datasets).forEach(name => {
       datasets[name].splice(0);
-      _this.emit('dataset-changed', { machineId: _this.state.id, name: name, values: datasets[name].slice() });
+      _this.emit('dataset-changed', {
+        machineName: _this.state.name || _this.state.id,
+        machineId: _this.state.id,
+        name: name,
+        values: datasets[name].slice(),
+      });
     });
   }
 }

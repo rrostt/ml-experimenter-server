@@ -3,10 +3,7 @@ var express = require('express');
 var router = express.Router();
 var UserSessions = require('../userSessions');
 
-//var clients = [];
-
 router.get('/', function (req, res) {
-//  res.json(clients.map(c => c.client.getStateObject()));
   res.json(req.userSession.getClientStates());
 });
 
@@ -55,6 +52,13 @@ router.get('/:id/clear-stderr', (req, res) => {
   res.end();
 });
 
-// router.clients = clients;
+router.post('/:id/rename', (req, res) => {
+  var id = req.params.id;
+  var newName = req.body.newName;
+
+  var client = req.userSession.getClientById(id); // clients.find(client => client.id == id).client;
+  client.rename(newName);
+  res.end();
+});
 
 module.exports = router;
