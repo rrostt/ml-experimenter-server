@@ -19,7 +19,7 @@ module.exports = function lsSync(cwd, ignore = []) {
         filelist.push({
           name: filepath.replace(cwd, ''),
           size: stats.size,
-          mtime: stats.mtime,
+          mtime: stats.mtime.getTime(),
         });
       }
     });

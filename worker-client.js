@@ -53,8 +53,14 @@ function Client(socket, initialState, user) {
         if (err) {
           console.log('error reading file');
         } else {
-          var mode = fs.statSync(path.join(cwd, file.name)).mode;
-          socket.emit('file', { name: file.name, mode: mode, buf: buf });
+          var stat = fs.statSync(path.join(cwd, file.name));
+          var mode = stat.mode;
+          socket.emit('file', {
+            name: file.name,
+            mode: mode,
+            buf: buf,
+            mtime: stat.mtime,
+          });
         }
       });
     });
