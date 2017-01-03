@@ -48,7 +48,7 @@ router.get('/load/:name', (req, res) => {
 
 router.get('/new', (req, res) => {
   Project.archiveCurrent(req.user.login)
-  .then(() => Project.getCurrent(req.user.login))
+  .then(() => Project.createNew(req.user.login))
   .then(() => {
     res.json({});
   })
@@ -66,17 +66,29 @@ router.post('/rename/:name', (req, res) => {
     return;
   }
 
+  console.log('renaming');
   Project.findOne({ login: req.user.login, name: req.params.name })
   .then(project => {
     if (project) {
-      project.name = req.body.newName;
-      project.save(err => {
-        if (err) {
+      console.log('checking existing');
+      Project.findOne({ login: req.user.login, name: req.body.newName }, (err, existingProject) => {
+        if (existingProject) {
+          console.log('exists');
           res.json({
-            error: 'unable to rename',
+            error: 'a project with this name already exists',
           });
         } else {
-          res.json({});
+          console.log('does not exist');
+          project.name = req.body.newName;
+          project.save(err => {
+            if (err) {
+              res.json({
+                error: 'unable to rename',
+              });
+            } else {
+              res.json({});
+            }
+          });
         }
       });
     } else {
@@ -101,6 +113,22 @@ router.post('/git-clone', (req, res) => {
       res.json({ error: 'unable to clone git' });
     }
   );
+});
+
+router.post('/delete/:name', (req, res) => {
+  Project.findOne({ login: req.user.login, name: req.params.name })
+  .then(project => {
+    if (project) {
+      project.delete()
+      .then(() => {
+        res.json({});
+      });
+    } else {
+      res.json({
+        error: 'no such project',
+      });
+    }
+  });
 });
 
 module.exports = router;

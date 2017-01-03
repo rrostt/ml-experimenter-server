@@ -14,28 +14,17 @@ function awsCredentialsFromSettings(settings) {
   };
 }
 
-// deprecated
-router.post('/credentials', function (req, res) {
-  // var key = req.body.key;
-  // var secret = req.body.secret;
-  // var region = req.body.region || 'eu-west-1';
-  //
-  // awsCredentials = {
-  //   accessKeyId: key,
-  //   secretAccessKey: secret,
-  //   region: region,
-  // };
-
-  //  aws.setCredentials(key, secret, region);
-
-  res.json({ error: 'depcrecated. use settings.' });
-});
+function getAwsConnectionFromUser(login) {
+  return Settings.forUser(login)
+    .then(awsCredentialsFromSettings)
+    .then(awsCredentials =>
+      new AwsConnection(awsCredentials)
+    );
+}
 
 router.get('/list', function (req, res) {
-  Settings.forUser(req.user.login)
-  .then(awsCredentialsFromSettings)
-  .then(awsCredentials => {
-    var aws = new AwsConnection(awsCredentials);
+  getAwsConnectionFromUser(req.user.login)
+  .then(aws => {
     aws.list(function (err, instances) {
       if (err) {
         res.json({
@@ -59,11 +48,8 @@ router.post('/launch', function (req, res) {
   var ami = req.body.ami;
   var instanceType = req.body.instanceType;
 
-  Settings.forUser(req.user.login)
-  .then(awsCredentialsFromSettings)
-  .then(awsCredentials => {
-
-    var aws = new AwsConnection(awsCredentials);
+  getAwsConnectionFromUser(req.user.login)
+  .then(aws => {
 
     aws.launch(
       {
@@ -84,7 +70,11 @@ router.post('/launch', function (req, res) {
       }
     );
 
-    aws.on('aws-instance', (data) => {
+    aws.on('instance', (data) => {
+      req.userSession.emitOnUi('aws', data);
+    });
+
+    aws.on('state', (data) => {
       req.userSession.emitOnUi('aws', data);
     });
 
@@ -94,10 +84,8 @@ router.post('/launch', function (req, res) {
 router.post('/terminate', function (req, res) {
   var instanceId = req.body.instanceId;
 
-  Settings.forUser(req.user.login)
-  .then(awsCredentialsFromSettings)
-  .then(awsCredentials => {
-    var aws = new AwsConnection(awsCredentials);
+  getAwsConnectionFromUser(req.user.login)
+  .then(aws => {
 
     aws.terminate(instanceId, function (err) {
       if (err) {
@@ -113,20 +101,29 @@ router.post('/terminate', function (req, res) {
 
 router.post('/startMachine', function (req, res) {
   var instanceId = req.body.instanceId;
+  var openPort = req.body.openPort;
 
-  Settings.forUser(req.user.login)
-  .then(awsCredentialsFromSettings)
-  .then(awsCredentials => {
-    var aws = new AwsConnection(awsCredentials);
+  getAwsConnectionFromUser(req.user.login)
+  .then(aws => {
 
-    aws.startMachine(
-      instanceId,
+    var config = openPort ?
+      {
+        port: 8765,
+        awsInstanceId: instanceId,
+        machineId: createMachineID(),
+        accessToken: req.body.accessToken,
+      }
+    :
       {
         host: appConfig.host,
         awsInstanceId: instanceId,
         machineId: createMachineID(),
         accessToken: req.body.accessToken,
-      },
+      };
+
+    aws.startMachine(
+      instanceId,
+      config,
       function (err) {
         if (err) {
           res.json({
@@ -145,6 +142,24 @@ router.post('/startMachine', function (req, res) {
     function createMachineID() {
       return 'aws-' + new Date().getTime();
     }
+  });
+});
+
+router.get('/instanceStatus/:id', (req, res) => {
+  getAwsConnectionFromUser(req.user.login)
+  .then(aws => {
+
+    aws.instanceStatus(req.params.id)
+    .then(status => {
+      res.json({
+        status: status,
+      });
+    })
+    .catch(err => {
+      res.json({
+        error: 'unable to get instance status',
+      });
+    });
   });
 });
 

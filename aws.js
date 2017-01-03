@@ -29,6 +29,7 @@ function AwsConnection(config) {
   this.terminate = terminate;
   this.getInstanceInfo = getInstanceInfo;
   this.startMachine = startMachine;
+  this.instanceStatus = instanceStatus;
 
   function list(cb) {
     console.log('listing instances');
@@ -64,6 +65,20 @@ function AwsConnection(config) {
     );
   }
 
+  function instanceStatus(instanceId) {
+    return new Promise((resolve, reject) => {
+      var params = {
+        InstanceIds: [
+          instanceId,
+        ],
+      };
+
+      ec2.describeInstanceStatus(params, (err, data) => {
+        resolve(data.InstanceStatuses[0].InstanceStatus.Status);
+      });
+    });
+  }
+
   function checkOrCreateSecurityGroup() {
     console.log('checking security group');
     return new Promise((resolve, reject) => {
@@ -82,7 +97,7 @@ function AwsConnection(config) {
           }
         } else {
           config.securityGroupId = data.SecurityGroups[0].GroupId;
-          if (data.SecurityGroups[0].IpPermissions.length == 0) {
+          if (data.SecurityGroups[0].IpPermissions.length < 2) {
             addSecurityPermission(data.SecurityGroups[0].GroupId);
           } else {
             resolve(true);
@@ -108,19 +123,33 @@ function AwsConnection(config) {
       }
 
       function addSecurityPermission(GroupId) {
-        var params = {
+        var params1 = {
           GroupId: GroupId,
           IpProtocol: 'tcp',
           FromPort: 22,
           ToPort: 22,
           CidrIp: '0.0.0.0/0',
         };
-        ec2.authorizeSecurityGroupIngress(params, function (err, data) {
+        var params2 = {
+          GroupId: GroupId,
+          IpProtocol: 'tcp',
+          FromPort: 8765,
+          ToPort: 8765,
+          CidrIp: '0.0.0.0/0',
+        };
+        ec2.authorizeSecurityGroupIngress(params1, function (err, data) {
           if (err) {
             console.log(err, err.stack);
             reject(false);
           } else {
-            resolve(true);
+            ec2.authorizeSecurityGroupIngress(params2, function (err, data) {
+              if (err) {
+                console.log(err, err.stack);
+                reject(false);
+              } else {
+                resolve(true);
+              }
+            });
           }
         });
       }
@@ -259,11 +288,11 @@ function AwsConnection(config) {
           KeyName: keyName,
         };
 
-        _this.emit('aws-instance', { state: 'launching' });
+        _this.emit('state', { state: 'launching' });
 
         ec2.runInstances(params, function (err, data) {
           if (err) {
-            _this.emit('aws-instance', {
+            _this.emit('state', {
               state: 'error',
               errorReason: 'Unable to run instance',
               details: err,
@@ -276,7 +305,7 @@ function AwsConnection(config) {
           var instanceId = data.Instances[0].InstanceId;
           console.log('Created instance', instanceId);
 
-          _this.emit('aws-instance', { state: 'checking', instanceId: instanceId });
+          _this.emit('instance', { state: 'checking', instanceId: instanceId });
 
           var tagParams = {
             Resources: [
@@ -293,9 +322,9 @@ function AwsConnection(config) {
           ec2.createTags(tagParams, function (err, data) {
             if (err) {
               console.log(err, err.stack); // an error occurred
-              _this.emit('aws-instance', {
+              _this.emit('instance', {
                 state: 'error',
-                // instanceId: instanceId,
+                instanceId: instanceId,
                 errorReason: 'Unable to add tags to instance',
                 details: err,
               });
@@ -311,9 +340,9 @@ function AwsConnection(config) {
                 },
                 function (err, data) {
                   if (err) {
-                    _this.emit('aws-instance', {
+                    _this.emit('instance', {
                       state: 'error',
-                      // instanceId: instanceId,
+                      instanceId: instanceId,
                       errorReason: 'Unable to get IP',
                       details: err,
                     });
@@ -323,8 +352,9 @@ function AwsConnection(config) {
 
                   var ip = data.Reservations[0].Instances[0].PublicIpAddress;
 
-                  _this.emit('aws-instance', {
+                  _this.emit('instance', {
                     state: 'launched',
+                    instanceId: instanceId,
                     data: {
                       instanceId: instanceId,
                       ip: ip,
@@ -408,7 +438,9 @@ function AwsConnection(config) {
   //
   // config:
   // {
-  //   host; -- where to connect
+  //   host: -- where to connect
+  //     OR
+  //   post: -- port to listen on for incoming websocket connections
   //   machineId: -- a generated machine id.
   //   accessToken: -- what token to use when connecting
   // }

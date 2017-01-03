@@ -7,9 +7,6 @@ var git = require('simple-git');
 
 var User = require('./user');
 
-var ProjectSchema = mongoose.Schema({ login: String, name: String, archive: String });
-var Project = mongoose.model('project', ProjectSchema);
-
 function getArchiveDir(login) {
   return path.join(__dirname, '../data/users/', login, 'archives/');
 }
@@ -18,8 +15,49 @@ function getArchiveFilename(name) {
   return name.replace(/ /g, '-') + '.zip';
 }
 
+var ProjectSchema = mongoose.Schema({ login: String, name: String, archive: String });
+
+ProjectSchema.methods.delete = function () { // for this
+  var project = this;
+
+  console.log('deleting project ' + project.name);
+
+  return new Promise((resolve, reject) => {
+    User.findOne({ login: project.login }, (err, user) => {
+      var cwd = user.getDir();
+      var archiveDir = getArchiveDir(project.login);
+      var archiveFilename = getArchiveFilename(project.name);
+      console.log('deleting file ' + path.join(archiveDir, archiveFilename));
+      fs.unlink(path.join(archiveDir, archiveFilename), () => {
+        project.remove(err => {
+          if (err) {
+            console.log('error deleting project in db', err);
+          }
+
+          fs.emptyDir(cwd, err => {
+            if (err) {
+              console.log('error clearing cwd');
+              reject(err);
+            } else {
+              resolve();
+            }
+          });
+        });
+      });
+    });
+  });
+};
+
+var Project = mongoose.model('project', ProjectSchema);
+
 Project.archiveCurrent = login => new Promise((resolve, reject) => {
   Project.getCurrent(login).then(project => {
+    if (!project) {
+      console.log('no current project');
+      resolve();
+      return;
+    }
+
     User.findOne({ login: login }, (err, user) => {
       var cwd = user.getDir();
       var archiveDir = getArchiveDir(login);
@@ -85,29 +123,35 @@ Project.getCurrent = (login) => new Promise((resolve, reject) => {
       return;
     }
 
+    console.log('current project ' + project);
+
     if (project) {
       resolve({
         name: project.name,
       });
     } else {
-      createNewName(login, 0)
-      .then(name => {
-        var newProject = new Project({
-          login: login,
-          name: name,
-          archive: '',
-        });
-        newProject.save((err, d) => {
-          if (err) {
-            reject(err);
-          } else {
-            resolve({
-              name: name,
-            });
-          }
-        });
-      });
+      resolve(null);
     }
+  });
+});
+
+Project.createNew = (login) => new Promise((resolve, reject) => {
+  createNewName(login, 0)
+  .then(name => {
+    var newProject = new Project({
+      login: login,
+      name: name,
+      archive: '',
+    });
+    newProject.save((err, d) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({
+          name: name,
+        });
+      }
+    });
   });
 });
 

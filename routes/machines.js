@@ -2,9 +2,37 @@ var fs = require('fs');
 var express = require('express');
 var router = express.Router();
 var UserSessions = require('../userSessions');
+var io = require('socket.io-client');
+var SocketConnections = require('../socket-connections');
 
 router.get('/', function (req, res) {
   res.json(req.userSession.getClientStates());
+});
+
+router.post('/connect', function (req, res) {
+  var host = req.body.host;
+
+  console.log('making io connection to ' + host);
+  var socket = io.connect(
+    host,
+    {
+      reconnection: false,
+    }
+  );
+
+  socket.on('connect_error', function (err) {
+    console.log('Connection Failed', err);
+    res.json({ error: 'unable to connect' });
+  });
+
+  socket.on('connect', function () {
+    SocketConnections.setupNewConnection(socket);
+    res.json({});
+  });
+
+  socket.on('error', function (err) {
+    console.log('socket connect error', err);
+  });
 });
 
 router.get('/:id/sync', function (req, res) {
